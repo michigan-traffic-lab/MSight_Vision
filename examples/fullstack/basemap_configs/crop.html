@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Maps Drawing Tool Example</title>
+  <!-- Include the Google Maps JavaScript API with the Drawing Library -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAI7xplPcmttmazLhrSQ-uLSljbOdluT8A&libraries=drawing"></script>
+  <script>
+    function initMap() {
+      var map = new google.maps.Map(document.getElementById('map'), {
+        zoom: 20,
+        center: {lat: 38.95557091808667, lng: -77.14896421644623}  // Example center
+      });
+
+      var drawingManager = new google.maps.drawing.DrawingManager({
+        drawingMode: google.maps.drawing.OverlayType.RECTANGLE,
+        drawingControl: true,
+        drawingControlOptions: {
+          position: google.maps.ControlPosition.TOP_CENTER,
+          drawingModes: ['rectangle']
+        },
+        rectangleOptions: {
+          editable: true,
+          draggable: true,
+          strokeColor: '#FF0000',  // Red color for the edge
+          strokeWeight: 1,         // Width of the edge
+          fillOpacity: 0           // Transparent inside
+        }
+      });
+      drawingManager.setMap(map);
+
+      var lastRectangle = null;
+
+      // Add an event listener for when the rectangle is completed
+      google.maps.event.addListener(drawingManager, 'rectanglecomplete', function(rectangle) {
+        // Remove the last rectangle if it exists
+        if (lastRectangle) {
+          lastRectangle.setMap(null);
+        }
+
+        // Store the new rectangle
+        lastRectangle = rectangle;
+
+        var bounds = rectangle.getBounds();
+        var NE = bounds.getNorthEast();  // Top-right corner
+        var SW = bounds.getSouthWest();  // Bottom-left corner
+
+        // Calculate NW and SE corners
+        var NW = {lat: NE.lat(), lng: SW.lng()};  // Top-left corner
+        var SE = {lat: SW.lat(), lng: NE.lng()};  // Bottom-right corner
+
+        // Print the corners in the specified format
+        var corners = {
+          "tl": [NW.lat, NW.lng],
+          "bl": [SW.lat(), SW.lng()],
+          "tr": [NE.lat(), NE.lng()],
+          "br": [SE.lat, SE.lng]
+        };
+
+        console.log(JSON.stringify(corners, null, 2));  // Pretty print JSON
+      });
+    }
+  </script>
+</head>
+<body onload="initMap()">
+  <div id="map" style="height: 100vh; width: 100%;"></div>
+</body>
+</html>

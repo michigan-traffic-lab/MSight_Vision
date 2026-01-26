@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-data = {msight_vision = ["pyarmor_runtime_000000/pyarmor_runtime.so"]}
+[tool.setuptools.packages.find]
+include = ["msight_*", "cli*"]
+
+[project]
+name = "msight_vision"
+version = "0.1.0"
+description = "2D detection module for the MSight roadside perception system"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Rusheng Zhang", email = "rushengz@umich.edu"},
+]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "matplotlib",
+    "geopy",
+    "filterpy",
+    "ultralytics",
+]
+
+[project.scripts]
+msight_launch_custom_fuser = "cli.launch_custom_fuser:main"
+msight_launch_finite_difference_state_estimator = "cli.launch_finite_difference_state_estimator:main"
+msight_launch_sort_tracker = "cli.launch_sort_tracker:main"
+msight_launch_yolo_onestage_detection = "cli.launch_yolo_onestage_detection:main"
+msight_launch_2d_viewer = "cli.launch_2d_viewer:main"
+msight_launch_road_user_list_viewer = "cli.launch_road_user_list_viewer:main"
+
+[project.urls]
+Homepage = "https://github.com/michigan-traffic-lab/MSight_Vision"

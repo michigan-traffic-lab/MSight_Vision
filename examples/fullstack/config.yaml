@@ -1,0 +1,29 @@
+# data basic settings
+version: 0.1
+data_path: sample_data/
+data_format: jpg
+
+loc_maps: 
+  gs_State_Ellsworth_NE: locmaps/locmap_sip_gs_state_ellsworth_nw.npz
+  gs_State_Ellsworth_NW: locmaps/locmap_sip_gs_state_ellsworth_ne.npz
+  gs_State_Ellsworth_SE: locmaps/locmap_sip_gs_state_ellsworth_se.npz
+  gs_State_Ellsworth_SW: locmaps/locmap_sip_gs_state_ellsworth_sw.npz
+
+warper_config:
+  no_warp: false
+  std_imgs:
+    gs_State_Ellsworth_NE: standard_imgs/ne_2022-06-23 10-00-25-310367.jpg
+    gs_State_Ellsworth_NW: standard_imgs/nw_2022-06-23 10-00-25-172987.jpg
+    gs_State_Ellsworth_SE: standard_imgs/se_2022-06-23 10-00-20-291065.jpg
+    gs_State_Ellsworth_SW: standard_imgs/sw_2022-06-23 10-00-17-910483.jpg
+
+model_config:
+  ckpt_path: models/yolov8m_midadvrb.pt      #
+  model_size: 'nano'
+  confthre: 0.2
+  nmsthre: 0.2
+  class_agnostic_nms: true
+
+# fusion_config:
+#   fusion_file: fusion/fusion.py
+#   fusion_class: "StateEllsworthFuser"
