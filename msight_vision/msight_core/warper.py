@@ -3,7 +3,7 @@ from msight_core.data import ImageData
 import cv2
 import numpy as np
 import time
-from msight_edge.utils import get_redis_client
+from msight_core.utils import get_redis_client
 from pathlib import Path
 import yaml
 import threading
