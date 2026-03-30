@@ -1,8 +1,8 @@
 ## python main.py -c config.yaml
-from msight_det2d.utils import ImageRetriever
-from msight_det2d import YoloDetector, HashLocalizer, SortTracker, ClassicWarper
-from msight_det2d.fuser import StateEllsworthFuser
-from msight_det2d.state_estimator import FiniteDifferenceStateEstimator
+from msight_vision.utils import ImageRetriever
+from msight_vision import MergedDetector, HashLocalizer, SortTracker, ClassicWarper
+from msight_vision.fuser import StateEllsworthFuser
+from msight_vision.state_estimator import FiniteDifferenceStateEstimator
 from msight_base import Frame
 import argparse
 from pathlib import Path
@@ -10,7 +10,7 @@ import cv2
 import torch
 from utils import plot_2d_detection_results, load_locmaps, is_number
 import yaml
-from msight_base.visualizer import Visualizer
+from msight_core.visualizer import Visualizer
 
 argparser = argparse.ArgumentParser(description="roundabout perception example")
 argparser.add_argument("-c", "--config", type=Path, required=True, help="config file path")
@@ -39,11 +39,7 @@ if not no_warp:
         warpers[sensor_name] = ClassicWarper(img)
 
 ### initialize detector
-model_path = config["model_config"]["ckpt_path"]
-confthre = config["model_config"]["confthre"]
-nmsthre = config["model_config"]["nmsthre"]
-class_agnostic_nms = config["model_config"]["class_agnostic_nms"]
-detector = YoloDetector(model_path=Path(model_path), device=device, confthre=confthre, nmsthre=nmsthre, fp16=False, class_agnostic_nms=class_agnostic_nms)
+detector = MergedDetector(model_config=config['model_config'], device=device)
 
 ### initialize localizer
 loc_maps_path = config ["loc_maps"]
