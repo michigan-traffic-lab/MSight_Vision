@@ -18,12 +18,14 @@ warper_config:
     gs_State_Ellsworth_SW: standard_imgs/sw_2022-06-23 10-00-17-910483.jpg
 
 model_config:
-  ckpt_path: models/yolov8m_midadvrb.pt      #
-  model_size: 'nano'
-  confthre: 0.2
-  nmsthre: 0.2
-  class_agnostic_nms: true
-
+  - type: Yolo26OBBDetector
+    class_ids: all
+    params:
+      ckpt_path: configs/models/yolo26l_obb_fisheye_1024_onelabel_v5.pt
+      confthre: 0.5
+      nmsthre: 0.2
+      class_agnostic_nms: true
+      end2end: false
 # fusion_config:
 #   fusion_file: fusion/fusion.py
 #   fusion_class: "StateEllsworthFuser"
