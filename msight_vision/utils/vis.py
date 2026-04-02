@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 def visualize_detection_result(image, detection_result, box_color=(0, 255, 0), text_color=(0, 255, 0)):
     """
     Visualize the detection result on the image.
@@ -11,7 +12,13 @@ def visualize_detection_result(image, detection_result, box_color=(0, 255, 0), t
         class_id = obj.class_id
         score = obj.score
         # draw rectangle
-        cv2.rectangle(image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), box_color, 2)
-        # put class_id and score
-        cv2.putText(image, f"{class_id}:{score:.2f}", (int(box[0]), int(box[1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
+        if len(box) == 8:  # xyxyxyxy
+            box = np.array(box).reshape(4, 2)
+            cv2.polylines(image, [box.astype(int)], isClosed=True, color=box_color, thickness=2)
+            # put class_id and score
+            cv2.putText(image, f"{class_id}:{score:.2f}", (int(box[0][0]), int(box[0][1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
+        else:  # xyxy
+            cv2.rectangle(image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), box_color, 2)
+            # put class_id and score
+            cv2.putText(image, f"{class_id}:{score:.2f}", (int(box[0]), int(box[1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
     return image

@@ -3,7 +3,7 @@ from msight_core.data import ImageData, DetectionResultsData
 import yaml
 from pathlib import Path
 import numpy as np
-from .. import YoloDetector, HashLocalizer, ClassicWarperWithExternalUpdate
+from .. import YoloDetector, MergedDetector, HashLocalizer, ClassicWarperWithExternalUpdate
 import torch
 import time
 from msight_core.utils import get_redis_client
@@ -31,12 +31,8 @@ class YoloOneStageDetectionNode(DataProcessingNode):
         with open(self.det_config_path, "r") as f:
             self.det_config = yaml.safe_load(f)
         self.no_warp = self.det_config['warper_config']['no_warp']            
-        self.model_path = self.det_config["model_config"]["ckpt_path"]
-        self.confthre = self.det_config["model_config"]["confthre"]
-        self.nmsthre = self.det_config["model_config"]["nmsthre"]
-        self.class_agnostic_nms = self.det_config["model_config"]["class_agnostic_nms"]
-        self.logger.info(f"Initializing YoloOneStageDetectionNode with model path: {self.model_path}, no_warp: {self.no_warp}, confthre: {self.confthre}, nmsthre: {self.nmsthre}, class_agnostic_nms: {self.class_agnostic_nms}")
-        self.detector = YoloDetector(model_path=Path(self.model_path), device=device, confthre=self.confthre, nmsthre=self.nmsthre, fp16=False, class_agnostic_nms=self.class_agnostic_nms)
+        self.logger.info(f"Initializing YoloOneStageDetectionNode with config: {self.det_config}")
+        self.detector = MergedDetector(model_config=self.det_config['model_config'], device=device)
         loc_maps_path = self.det_config["loc_maps"]
         loc_maps = load_locmaps(loc_maps_path)
         self.localizers = {key: HashLocalizer(item['x_map'], item['y_map']) for key, item in loc_maps.items()}
