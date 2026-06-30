@@ -72,7 +72,7 @@ while True:
             img = warper.warp(img_buff[sensor_name]["image"])
         else:
             img = img_buff[sensor_name]["image"]
-        result = detector.detect(img, img_buff[sensor_name]["timestamp"], "fisheye")
+        result = detector.detect(img, img_buff[sensor_name]["timestamp"], "fisheye", sensor_name)
         detection_buffer[sensor_name] = result
     #print(f"Detection result: {detection_buffer}")
     

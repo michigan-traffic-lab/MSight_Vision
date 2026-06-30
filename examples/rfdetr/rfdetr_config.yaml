@@ -1,0 +1,52 @@
+rfdetr_config:
+  # Model size — one of: rfdetr_nano, rfdetr_small, rfdetr_medium,
+  #                       rfdetr_large, rfdetr_xlarge, rfdetr_2xlarge
+  model_name: rfdetr_2xlarge
+
+  # Path to trained checkpoint (.pt). Relative to this config file.
+  model_path: ./weights/rfdetr_2xlarge_best.pt
+
+  # Number of output classes the model was trained with.
+  num_classes: 8
+
+  # Human-readable class names (index == class_id). Optional — used for
+  # logging and viewer nodes; detection output uses integer class_id.
+  class_names:
+    - vehicle
+    - pedestrian
+    - cyclist
+    - truck
+    - bus
+    - motorcycle
+    - scooter
+    - other
+
+  # Confidence threshold passed to model.predict() and the post-filter.
+  detection_threshold: 0.2
+
+  # Sensor lens type forwarded to DetectionResult2D.
+  sensor_type: fisheye
+
+  # Set true to attach the raw ImageData frame to DetectionResultsData output.
+  # Required by DetectionResults2DViewerNode to draw bounding boxes on the frame.
+  include_sensor_data_in_result: true
+
+# Fisheye camera intrinsics — JSON file with keys: f, x0, y0
+# Same format as Project1 MSight/utils/load_locamaps.load_intrinsics.
+# x0/y0 are the optical-axis pixel coordinates used by fisheye_ground_contact()
+# to compute the correct ground-contact pixel for each bounding box.
+# Relative path resolved from the directory containing this config file.
+intrinsics: ./calibration/intrinsics.json
+
+# Localization map — single .npz file with x_map and y_map arrays (shape H x W).
+# Maps each pixel coordinate to a lat/lon value via HashLocalizer.
+# Relative path resolved from the directory containing this config file.
+loc_maps: ./calibration/locmap_sip_gs_Fuller_Glazier2_v1.npz
+
+warper_config:
+  # Set true to skip perspective warping (recommended for calibrated fisheye feeds).
+  no_warp: true
+
+  # Redis key prefix for warp matrices — only used when no_warp: false.
+  # Warp matrix is retrieved as "<redis_prefix>:<sensor_name>".
+  redis_prefix: warp_matrix

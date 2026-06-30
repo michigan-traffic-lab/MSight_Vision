@@ -18,12 +18,13 @@ authors = [
     {name = "Rusheng Zhang", email = "rushengz@umich.edu"},
 ]
 dependencies = [
+    "msight-base","msight-core",
     "numpy",
     "opencv-python",
     "matplotlib",
     "geopy",
     "filterpy",
-    "ultralytics",
+    "ultralytics","rfdetr","rfdetr-plus"
 ]
 
 [project.scripts]
@@ -31,6 +32,8 @@ msight_launch_custom_fuser = "cli.launch_custom_fuser:main"
 msight_launch_finite_difference_state_estimator = "cli.launch_finite_difference_state_estimator:main"
 msight_launch_sort_tracker = "cli.launch_sort_tracker:main"
 msight_launch_yolo_onestage_detection = "cli.launch_yolo_onestage_detection:main"
+msight_launch_rfdetr_detection = "cli.launch_rfdetr_detection:main"
+msight_launch_mp4_folder = "cli.launch_mp4_folder:main"
 msight_launch_2d_viewer = "cli.launch_2d_viewer:main"
 msight_launch_road_user_list_viewer = "cli.launch_road_user_list_viewer:main"
 
