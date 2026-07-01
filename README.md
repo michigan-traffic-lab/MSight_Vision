@@ -39,6 +39,8 @@ The main public components include:
 ```bash
 git clone https://github.com/michigan-traffic-lab/MSight_Vision.git
 cd MSight_Vision
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
 ```
 
