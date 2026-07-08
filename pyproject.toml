@@ -37,7 +37,7 @@ msight_launch_rfdetr_detection = "cli.launch_rfdetr_detection:main"
 msight_launch_mp4_folder = "cli.launch_mp4_folder:main"
 msight_launch_2d_viewer = "cli.launch_2d_viewer:main"
 msight_launch_road_user_list_viewer = "cli.launch_road_user_list_viewer:main"
-msight_launch_web_viewer = "cli.launch_web_viewer:main"
+msight_launch_web_viewer = "msight_vision.msight_core.web_viewer:main"
 
 [project.urls]
 Homepage = "https://github.com/michigan-traffic-lab/MSight_Vision"

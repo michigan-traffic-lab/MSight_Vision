@@ -123,3 +123,17 @@ class WebDetectionViewerNode(SinkNode):
             cv2.putText(frame, label, (x1, max(y1 - 6, 0)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
         self._buf.put(frame)
+
+
+def main():
+    from msight_core.utils import get_node_config_from_args, get_default_arg_parser
+
+    parser = get_default_arg_parser(
+        description="Launch web-based detection viewer (MJPEG stream, no display required).",
+        node_class=WebDetectionViewerNode,
+    )
+    parser.add_argument("--port", "-p", type=int, default=9010,
+                        help="Port to serve the viewer on (default: 9010)")
+    args = parser.parse_args()
+    configs = get_node_config_from_args(args)
+    WebDetectionViewerNode(configs, port=args.port).spin()

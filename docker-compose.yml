@@ -105,8 +105,6 @@ services:
     environment:
       - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
       - SENSOR_NAME=${SENSOR_NAME:-my_camera}
-    ports:
-      - "${VIEWER_PORT:-9010}:9010"
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
