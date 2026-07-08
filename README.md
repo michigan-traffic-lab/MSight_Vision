@@ -90,7 +90,7 @@ No local Python environment needed. The viewer streams to a browser — no displ
 ### 1. Configure
 
 ```bash
-cp .env.example .env
+cp env_sample .env
 ```
 
 Edit `.env`:
@@ -110,7 +110,7 @@ docker compose --env-file .env build
 ### 3. Run (GPU)
 
 ```bash
-docker compose --env-file .env up
+docker compose --env-file .env up -d
 ```
 
 ### 4. View detections in browser
