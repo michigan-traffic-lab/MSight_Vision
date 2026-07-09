@@ -1,0 +1,114 @@
+# RF-DETR Detection Pipeline — Docker Compose
+#
+# Setup:
+#   cp .env.example .env
+#   # Edit .env: set VIDEO_INPUT to your video file or folder path
+#
+# Run (GPU):
+#   docker compose --env-file .env up
+#   Then open http://localhost:9010 in a browser
+#
+# Run (CPU, no GPU required):
+#   docker compose --env-file .env -f docker-compose.yml -f docker-compose.cpu.yml up
+#
+# Or export variables directly without .env:
+#   VIDEO_INPUT=/path/to/video.mp4 docker compose up
+
+x-msight: &msight
+  build:
+    context: .
+    dockerfile: docker/Dockerfile-local
+    args:
+      BASE_IMAGE: ${DOCKER_BASE_IMAGE:-michigantrafficlab/msight-core:latest-pytorch2.7.1-cuda12.8-cudnn9}
+  network_mode: host
+  restart: on-failure:3
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  video_source:
+    <<: *msight
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
+      - SENSOR_NAME=${SENSOR_NAME:-my_camera}
+      - VIDEO_INPUT=${VIDEO_INPUT:-}
+    volumes:
+      - ${VIDEO_INPUT:-/tmp}:/input:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -z "$VIDEO_INPUT" ]; then
+          echo "ERROR: VIDEO_INPUT is not set." >&2
+          echo "  Run: docker compose --env-file .env up" >&2
+          echo "  Or:  VIDEO_INPUT=/path/to/video.mp4 docker compose up" >&2
+          exit 1
+        fi
+        redis-cli hdel MSIGHT:NODES video_source rfdetr_detector detection_viewer >/dev/null 2>&1 || true
+        if [ -d /input ]; then
+          exec msight_launch_mp4_folder \
+            --name video_source \
+            --sensor-name "$SENSOR_NAME" \
+            --publish-topic "camera/$SENSOR_NAME" \
+            --folder /input
+        else
+          exec msight_launch_rtsp \
+            --name video_source \
+            --sensor-name "$SENSOR_NAME" \
+            --publish-topic "camera/$SENSOR_NAME" \
+            --url /input
+        fi
+
+  rfdetr_detector:
+    <<: *msight
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
+      - SENSOR_NAME=${SENSOR_NAME:-my_camera}
+    volumes:
+      - ./examples/rfdetr/rfdetr_config.yaml:/configs/rfdetr_config.yaml:ro
+      - ./examples/rfdetr/calibration:/configs/calibration:ro
+      - ./examples/rfdetr/weights:/configs/weights
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        exec msight_launch_rfdetr_detection \
+          --name rfdetr_detector \
+          --subscribe-topic "camera/$SENSOR_NAME" \
+          --publish-topic "detection/$SENSOR_NAME" \
+          --det-configs /configs/rfdetr_config.yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  detection_viewer:
+    <<: *msight
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
+      - SENSOR_NAME=${SENSOR_NAME:-my_camera}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        exec msight_launch_web_viewer \
+          --name detection_viewer \
+          --subscribe-topic "detection/$SENSOR_NAME" \
+          --port 9010

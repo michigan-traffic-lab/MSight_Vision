@@ -1,3 +1,6 @@
+# Model weights — large binary files, auto-downloaded at runtime
+examples/rfdetr/weights/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

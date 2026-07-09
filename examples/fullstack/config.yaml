@@ -21,7 +21,7 @@ model_config:
   - type: Yolo26OBBDetector
     class_ids: all
     params:
-      ckpt_path: configs/models/yolo26l_obb_fisheye_1024_onelabel_v5.pt
+      ckpt_path: models/yolo26l_obb_fisheye_1024_onelabel_v5.pt
       confthre: 0.5
       nmsthre: 0.2
       class_agnostic_nms: true

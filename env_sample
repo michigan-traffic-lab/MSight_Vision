@@ -1,0 +1,13 @@
+# Copy this file to .env and fill in the values before running docker compose.
+
+# Path to a single .mp4 file OR a folder of .mp4 files to use as the video source.
+VIDEO_INPUT=/path/to/video.mp4
+
+# Logical camera / sensor name — must match across source, detector, and viewer.
+SENSOR_NAME=my_camera
+
+# Unique identifier for this edge device (used in Redis node registration).
+MSIGHT_EDGE_DEVICE_NAME=mcity_edge
+
+# Override the Docker base image (uncomment to use CPU-only build instead):
+# DOCKER_BASE_IMAGE=michigantrafficlab/msight-core:latest-pytorch2.7.1-cpu
