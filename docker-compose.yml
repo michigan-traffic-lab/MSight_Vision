@@ -80,7 +80,8 @@ services:
     volumes:
       - ./examples/rfdetr/rfdetr_config.yaml:/configs/rfdetr_config.yaml:ro
       - ./examples/rfdetr/calibration:/configs/calibration:ro
-      - ./examples/rfdetr/weights:/configs/weights
+      - ./examples/rfdetr/locmaps:/configs/locmaps:ro
+      - ./examples/rfdetr/models:/configs/models
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |

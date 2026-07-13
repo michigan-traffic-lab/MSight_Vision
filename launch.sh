@@ -1,10 +1,12 @@
 #!/bin/bash
 # RF-DETR detection pipeline launcher.
-# Opens one gnome-terminal tab per node (Redis, Video Source, RF-DETR Detector, 2D Viewer).
+# Opens one gnome-terminal tab per node (Redis, Video Source, RF-DETR Detector, Web Viewer).
 #
 # Usage:
 #   ./launch.sh /path/to/video.mp4       # single MP4 file
 #   ./launch.sh /path/to/folder/         # all .mp4 files in folder, played sequentially
+#
+# Once running, open http://localhost:9010 in a browser to see detections.
 #
 # Set MSIGHT_EDGE_DEVICE_NAME and SENSOR_NAME below before running.
 
@@ -38,7 +40,8 @@ gnome-terminal \
       --subscribe-topic camera/${SENSOR_NAME} \
       --publish-topic detection/${SENSOR_NAME} \
       --det-configs ${DET_CONFIGS}; exec bash'" \
-  --tab --title="2D Viewer" \
-    --command="bash -c 'source ${VENV} && msight_launch_2d_viewer \
+  --tab --title="Web Viewer (port 9010)" \
+    --command="bash -c 'source ${VENV} && msight_launch_web_viewer \
       --name detection_viewer \
-      --subscribe-topic detection/${SENSOR_NAME}; exec bash'"
+      --subscribe-topic detection/${SENSOR_NAME} \
+      --port 9010; exec bash'"

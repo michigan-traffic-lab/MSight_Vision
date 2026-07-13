@@ -1,0 +1,14 @@
+# CPU-only override — removes GPU device reservation and switches to the CPU base image.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml --profile viewer up
+
+services:
+  rfdetr_detector:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile-local
+      args:
+        BASE_IMAGE: michigantrafficlab/msight-core:latest-pytorch2.7.1-cpu
+    deploy: {}

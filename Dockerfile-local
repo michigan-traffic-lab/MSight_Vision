@@ -1,0 +1,13 @@
+ARG BASE_IMAGE=michigantrafficlab/msight-core:latest-pytorch2.7.1-cuda12.8-cudnn9
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && \
+    pip install --upgrade build
+
+COPY . /app/msight-vision
+WORKDIR /app/msight-vision
+RUN pip install -e .
+
+# msight-base pulls in opencv-python-headless; the viewer node needs the GUI build for cv2.imshow.
+RUN pip uninstall -y opencv-python-headless || true && \
+    pip install --force-reinstall opencv-python

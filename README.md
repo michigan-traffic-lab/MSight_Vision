@@ -58,10 +58,11 @@ This installs MSight Vision and all dependencies including MSight Base, MSight C
 ```
 examples/rfdetr/
 ├── calibration/
-│   ├── intrinsics.json        # fisheye camera intrinsics
-│   └── locmap.npz             # localization map (x_map, y_map arrays)
-├── rfdetr_config.yaml
-└── weights/                   # auto-created on first run
+│   └── intrinsics.json        # fisheye camera intrinsics
+├── locmaps/
+│   └── locmap_<site>.npz      # localization map (x_map, y_map arrays)
+├── models/                    # auto-created on first run (gitignored)
+└── rfdetr_config.yaml
 ```
 
 `intrinsics.json` format:
@@ -90,7 +91,7 @@ No local Python environment needed. The viewer streams to a browser — no displ
 ### 1. Configure
 
 ```bash
-cp env_sample .env
+cp .env.example .env
 ```
 
 Edit `.env`:
@@ -110,7 +111,7 @@ docker compose --env-file .env build
 ### 3. Run (GPU)
 
 ```bash
-docker compose --env-file .env up -d
+docker compose --env-file .env up
 ```
 
 ### 4. View detections in browser
@@ -141,7 +142,7 @@ docker compose down
 
 ## Model Weights
 
-RF-DETR weights are **not included** in this repository. On first run, if `examples/rfdetr/weights/rfdetr_2xlarge_best.pt` is missing, it downloads automatically from HuggingFace:
+RF-DETR weights are **not included** in this repository. On first run, if `examples/rfdetr/models/rfdetr_2xlarge_best.pt` is missing, it downloads automatically from HuggingFace:
 
 - Repo: `mcity-ai/rfdetr_2xlarge`  
 - File: `rfdetr_2xlarge_best.pt`
@@ -151,11 +152,11 @@ To download manually:
 python -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('mcity-ai/rfdetr_2xlarge', 'rfdetr_2xlarge_best.pt',
-                local_dir='examples/rfdetr/weights')
+                local_dir='examples/rfdetr/models')
 "
 ```
 
-In Docker, the weights are downloaded into `./examples/rfdetr/weights/` on the host and reused on subsequent runs.
+In Docker, the weights are downloaded into `./examples/rfdetr/models/` on the host and reused on subsequent runs.
 
 ---
 
@@ -256,8 +257,9 @@ Mcity_MSight_Vision/
 └── examples/
     └── rfdetr/
         ├── rfdetr_config.yaml   # Pipeline configuration
-        ├── calibration/         # intrinsics.json + locmap.npz (user-provided)
-        └── weights/             # Model checkpoint (auto-downloaded, gitignored)
+        ├── calibration/         # intrinsics.json (fisheye intrinsics, user-provided)
+        ├── locmaps/             # locmap_<site>.npz (user-provided)
+        └── models/              # Model checkpoint (auto-downloaded, gitignored)
 ```
 
 ---
