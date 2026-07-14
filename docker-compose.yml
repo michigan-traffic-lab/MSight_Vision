@@ -17,6 +17,7 @@
 #   docker compose --env-file .env -f docker-compose.yml -f docker-compose.cpu.yml up
 
 x-msight: &msight
+  image: michigantrafficlab/msight-vision:${MSIGHT_VISION_TAG:-latest}
   build:
     context: .
     dockerfile: docker/Dockerfile-local

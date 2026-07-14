@@ -18,5 +18,8 @@ MSIGHT_EDGE_DEVICE_NAME=mcity_edge
 
 # ── Docker image override ───────────────────────────────────────────────────────
 
+# Tag applied to the built image (default: latest)
+# MSIGHT_VISION_TAG=latest
+
 # Uncomment to use CPU-only build instead of GPU:
 # DOCKER_BASE_IMAGE=michigantrafficlab/msight-core:latest-pytorch2.7.1-cpu
