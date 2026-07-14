@@ -23,7 +23,7 @@ Choose one of two deployment paths:
 | Path | Best for |
 |------|----------|
 | [Local (venv)](#local-installation) | Development, debugging, direct access to logs |
-| [Docker Compose](#docker-deployment) | Reproducible deployments, no display required, browser-based viewer |
+| [Docker](#docker-deployment) | Reproducible deployments, no display required, browser-based viewer |
 
 ---
 
@@ -88,55 +88,100 @@ This opens four terminal tabs — Redis, Video Source, RF-DETR Detector, and Web
 
 No local Python environment needed. The viewer streams to a browser — no display server or `xhost` required.
 
+The pipeline image is tagged **`michigantrafficlab/msight-vision:latest`** at build time.
+
 ### 1. Configure
 
 ```bash
-cp .env.example .env
+cp env_sample .env
 ```
 
-Edit `.env`:
+Edit `.env` — choose one source:
 
 ```bash
-VIDEO_INPUT=/path/to/video.mp4   # or /path/to/folder/
-SENSOR_NAME=my_camera
+# Live RTSP stream (takes priority when set)
+RTSP_URL=rtsp://10.0.1.70:9000/1
+
+# OR recorded video file / folder
+# VIDEO_INPUT=/path/to/video.mp4
+
+# Sensor name — must match across all nodes
+SENSOR_NAME=gs_mcity_1
+
 MSIGHT_EDGE_DEVICE_NAME=mcity_edge
 ```
 
-### 2. Build
+### 2. Build image
+
+Builds `michigantrafficlab/msight-vision:latest` from `docker/Dockerfile-local`:
+
+```bash
+./docker_launch.sh --build -d
+```
+
+Or with Docker Compose directly:
 
 ```bash
 docker compose --env-file .env build
 ```
 
-### 3. Run (GPU)
+To build with a version tag:
 
 ```bash
-docker compose --env-file .env up
+MSIGHT_VISION_TAG=0.1.0 docker compose --env-file .env build
 ```
 
-### 4. View detections in browser
+### 3. Deploy
 
-Open **http://localhost:9010** — the annotated video stream appears automatically once the detector starts processing frames.
-
-### CPU-only (no NVIDIA GPU)
+**RTSP stream (GPU) — recommended:**
 
 ```bash
-docker compose --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.cpu.yml up
+# Start detached (Ctrl-C safe, containers keep running)
+./docker_launch.sh -d
+
+# Override URL and sensor inline
+./docker_launch.sh rtsp://10.0.1.70:9001/1 gs_mcity_2 -d
 ```
 
-### Pass video inline (no `.env` file)
+**Video file / folder:**
 
 ```bash
-VIDEO_INPUT=/path/to/video.mp4 docker compose up
+VIDEO_INPUT=/path/to/video.mp4 docker compose --env-file .env up -d
 ```
 
-### Stop
+**CPU-only (no NVIDIA GPU):**
 
 ```bash
-docker compose down
+./docker_launch.sh --cpu -d
 ```
+
+### 4. View detections
+
+Open **http://localhost:9010** — the annotated MJPEG stream appears once the detector starts processing frames.
+
+### Manage running containers
+
+```bash
+# Follow logs (Ctrl-C detaches, containers keep running)
+./docker_launch.sh --logs
+
+# Or directly:
+docker compose logs -f
+
+# Stop and remove containers
+./docker_launch.sh --down
+```
+
+### `docker_launch.sh` flag reference
+
+| Flag | Effect |
+|------|--------|
+| *(none)* | Foreground — Ctrl-C stops all containers |
+| `-d` | Detached — containers keep running after Ctrl-C |
+| `--build` | Rebuild `michigantrafficlab/msight-vision` image first |
+| `--logs` | Start detached, then tail logs |
+| `--cpu` | Use CPU-only base image (no GPU required) |
+| `--down` | Stop and remove all containers |
 
 ---
 
@@ -241,17 +286,20 @@ Use `--help` on any command for argument details.
 ## Repository Structure
 
 ```
-Mcity_MSight_Vision/
-├── launch.sh                    # Local pipeline launcher (gnome-terminal tabs)
-├── docker-compose.yml           # Docker pipeline launcher (GPU)
-├── docker-compose.cpu.yml       # Docker CPU-only override
-├── .env.example                 # Docker environment template
+MSight_Vision/
+├── launch.sh                    # Local launcher — file/folder source (gnome-terminal tabs)
+├── launch_rtsp.sh               # Local launcher — RTSP stream (gnome-terminal tabs)
+├── docker_launch.sh        # Docker launcher — RTSP stream (wraps docker compose)
+├── docker-compose.yml           # Compose file — GPU, supports RTSP and file sources
+├── docker-compose.cpu.yml       # Compose override — CPU-only (no GPU)
+├── env_sample                   # Environment variable template (copy to .env)
 ├── pyproject.toml
 ├── cli/                         # Entry-point scripts
-├── docker/                      # Dockerfiles
+├── docker/
 │   ├── Dockerfile               # GPU production build
 │   ├── Dockerfile-cpu           # CPU production build
-│   └── Dockerfile-local         # GPU editable-install build (used by Compose)
+│   └── Dockerfile-local         # Editable-install build (used by Compose)
+│                                #   → tags image as michigantrafficlab/msight-vision
 ├── msight_vision/
 │   └── msight_core/             # Detection, tracking, fusion, state estimation, viewer nodes
 └── examples/
