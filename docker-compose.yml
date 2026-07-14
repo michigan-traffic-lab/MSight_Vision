@@ -2,17 +2,19 @@
 #
 # Setup:
 #   cp .env.example .env
-#   # Edit .env: set VIDEO_INPUT to your video file or folder path
+#   # Edit .env: set VIDEO_INPUT (file/folder) OR RTSP_URL (live stream)
 #
-# Run (GPU):
+# Run with a file/folder source (GPU):
 #   docker compose --env-file .env up
 #   Then open http://localhost:9010 in a browser
 #
+# Run with RTSP stream (GPU):
+#   RTSP_URL=rtsp://35.0.1.70:9000/1 SENSOR_NAME=gs_mcity_1 docker compose up
+#   Or set RTSP_URL and SENSOR_NAME in .env and run:
+#   docker compose --env-file .env up
+#
 # Run (CPU, no GPU required):
 #   docker compose --env-file .env -f docker-compose.yml -f docker-compose.cpu.yml up
-#
-# Or export variables directly without .env:
-#   VIDEO_INPUT=/path/to/video.mp4 docker compose up
 
 x-msight: &msight
   build:
@@ -41,32 +43,42 @@ services:
         condition: service_healthy
     environment:
       - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
-      - SENSOR_NAME=${SENSOR_NAME:-my_camera}
+      - SENSOR_NAME=${SENSOR_NAME:-gs_mcity_1}
       - VIDEO_INPUT=${VIDEO_INPUT:-}
+      - RTSP_URL=${RTSP_URL:-}
     volumes:
       - ${VIDEO_INPUT:-/tmp}:/input:ro
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        if [ -z "$VIDEO_INPUT" ]; then
-          echo "ERROR: VIDEO_INPUT is not set." >&2
-          echo "  Run: docker compose --env-file .env up" >&2
-          echo "  Or:  VIDEO_INPUT=/path/to/video.mp4 docker compose up" >&2
-          exit 1
-        fi
         redis-cli hdel MSIGHT:NODES video_source rfdetr_detector detection_viewer >/dev/null 2>&1 || true
-        if [ -d /input ]; then
-          exec msight_launch_mp4_folder \
-            --name video_source \
-            --sensor-name "$SENSOR_NAME" \
-            --publish-topic "camera/$SENSOR_NAME" \
-            --folder /input
-        else
+        # RTSP stream takes priority over file input
+        if [ -n "$RTSP_URL" ]; then
           exec msight_launch_rtsp \
             --name video_source \
             --sensor-name "$SENSOR_NAME" \
             --publish-topic "camera/$SENSOR_NAME" \
-            --url /input
+            --url "$RTSP_URL" \
+            --rtsp-transport tcp
+        elif [ -n "$VIDEO_INPUT" ]; then
+          if [ -d /input ]; then
+            exec msight_launch_mp4_folder \
+              --name video_source \
+              --sensor-name "$SENSOR_NAME" \
+              --publish-topic "camera/$SENSOR_NAME" \
+              --folder /input
+          else
+            exec msight_launch_rtsp \
+              --name video_source \
+              --sensor-name "$SENSOR_NAME" \
+              --publish-topic "camera/$SENSOR_NAME" \
+              --url /input
+          fi
+        else
+          echo "ERROR: Set RTSP_URL (live stream) or VIDEO_INPUT (file/folder) in .env" >&2
+          echo "  RTSP:  RTSP_URL=rtsp://35.0.1.70:9000/1 SENSOR_NAME=gs_mcity_1 docker compose up" >&2
+          echo "  File:  VIDEO_INPUT=/path/to/video.mp4 docker compose up" >&2
+          exit 1
         fi
 
   rfdetr_detector:
@@ -76,7 +88,7 @@ services:
         condition: service_healthy
     environment:
       - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
-      - SENSOR_NAME=${SENSOR_NAME:-my_camera}
+      - SENSOR_NAME=${SENSOR_NAME:-gs_mcity_1}
     volumes:
       - ./examples/rfdetr/rfdetr_config.yaml:/configs/rfdetr_config.yaml:ro
       - ./examples/rfdetr/calibration:/configs/calibration:ro
@@ -105,7 +117,7 @@ services:
         condition: service_healthy
     environment:
       - MSIGHT_EDGE_DEVICE_NAME=${MSIGHT_EDGE_DEVICE_NAME:-mcity_edge}
-      - SENSOR_NAME=${SENSOR_NAME:-my_camera}
+      - SENSOR_NAME=${SENSOR_NAME:-gs_mcity_1}
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |

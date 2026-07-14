@@ -1,13 +1,22 @@
 # Copy this file to .env and fill in the values before running docker compose.
 
-# Path to a single .mp4 file OR a folder of .mp4 files to use as the video source.
-VIDEO_INPUT=/path/to/video.mp4
+# ── Source: choose ONE of RTSP_URL or VIDEO_INPUT ──────────────────────────────
+
+# RTSP live stream (takes priority over VIDEO_INPUT when set)
+ RTSP_URL=rtsp://10.0.1.70:9000/1
+
+# File/folder source (single .mp4 or a folder of .mp4 files)
+# VIDEO_INPUT=/path/to/video.mp4
+
+# ── Camera / pipeline identity ──────────────────────────────────────────────────
 
 # Logical camera / sensor name — must match across source, detector, and viewer.
-SENSOR_NAME=my_camera
+SENSOR_NAME=gs_mcity_1
 
 # Unique identifier for this edge device (used in Redis node registration).
 MSIGHT_EDGE_DEVICE_NAME=mcity_edge
 
-# Override the Docker base image (uncomment to use CPU-only build instead):
+# ── Docker image override ───────────────────────────────────────────────────────
+
+# Uncomment to use CPU-only build instead of GPU:
 # DOCKER_BASE_IMAGE=michigantrafficlab/msight-core:latest-pytorch2.7.1-cpu
