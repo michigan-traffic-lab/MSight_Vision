@@ -169,6 +169,7 @@ class KalmanBoxTracker(object):
         self.dlpred_boxes = None
         self.dlpred_age = 0
         self.category = category  # Store object category
+        self.det_idx = -1  # detection index matched this frame (set by Sort.update)
         self.last_confidence = bbox[4] if len(bbox) > 4 else 1.0  # Store last confidence
 
     def update(self, bbox, category=None):
@@ -313,6 +314,7 @@ class Sort(object):
         ret = []
         id = []
         uuid = []
+        det_indices = []
         for t, trk in enumerate(trks):
             pos = self.trackers[t].predict()[0]
             trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
@@ -328,10 +330,12 @@ class Sort(object):
         # update matched trackers with assigned detections
         for m in matched:
             self.trackers[m[1]].update(dets[m[0], :], categories[m[0]])
+            self.trackers[m[1]].det_idx = int(m[0])
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             trk = KalmanBoxTracker(dets[i, :], category=categories[i])
+            trk.det_idx = int(i)
             self.trackers.append(trk)
         i = len(self.trackers)
         for trk in reversed(self.trackers):
@@ -341,13 +345,14 @@ class Sort(object):
                 ret.append(np.concatenate((d, [trk.id+1])).reshape(1, -1))
                 id.append(trk.id+1)
                 uuid.append(trk.uuid)
+                det_indices.append(trk.det_idx)
             i -= 1
             # remove dead tracklet
             if(trk.time_since_update > self.max_age):
                 self.trackers.pop(i)
         if(len(ret) > 0):
-            return np.concatenate(ret), id, uuid
-        return np.empty((0, 5)), id, uuid
+            return np.concatenate(ret), id, uuid, det_indices
+        return np.empty((0, 5)), id, uuid, det_indices
 
     def update_pred(self, vehicle_list):
         for tracker in self.trackers:
@@ -382,24 +387,27 @@ def vlist2bbox(vehicle_list, r=4):
     return np.array(bboxes), categories
 
 
-def update_vlist(bbs, updated_bbs, id, uuid, vehicle_list):
-
+def update_vlist(updated_bbs, ids, uuids, det_indices, vehicle_list):
+    """Write tracker ids back onto the input points by matched detection index.
+    The association is known exactly inside Sort.update; the previous
+    nearest-center argmin (filtered output center vs raw input centers, no
+    consumed marking) mis-assigned ids and silently dropped objects whenever
+    two objects were close together."""
     if len(vehicle_list) == 0:
         return []
 
-    xcs = (bbs[:, 0] + bbs[:, 2]) / 2.0
-    ycs = (bbs[:, 1] + bbs[:, 3]) / 2.0
-
     for i in range(len(updated_bbs)):
+        di = det_indices[i]
+        if di < 0 or di >= len(vehicle_list):
+            continue
+        v = vehicle_list[di]
+        v.traj_id = str(int(ids[i]))
+        v._uuid = uuids[i]
         xc_ = (updated_bbs[i, 0] + updated_bbs[i, 2]) / 2.0
         yc_ = (updated_bbs[i, 1] + updated_bbs[i, 3]) / 2.0
-        ds = ((xcs - xc_)**2 + (ycs - yc_)**2)**0.5
-        idx_min = np.argmin(ds)
-        vehicle_list[idx_min].traj_id = str(int(id[i]))
-        vehicle_list[idx_min]._uuid = uuid[i]
         lat, lon = coord_unnormalization(xc_, yc_)
-        vehicle_list[idx_min].x = lat
-        vehicle_list[idx_min].y = lon
+        v.x = lat
+        v.y = lon
 
     return vehicle_list
 
@@ -448,9 +456,8 @@ class SortTracker(TrackerBase):
     
     def track(self, object_list):
         bbs, categories = vlist2bbox(object_list)
-        # print(bbs)
-        updated_bbs, id, uuid = self.tracker.update(bbs, categories)
-        object_list = update_vlist(bbs, updated_bbs, id, uuid, object_list)
+        updated_bbs, ids, uuids, det_indices = self.tracker.update(bbs, categories)
+        object_list = update_vlist(updated_bbs, ids, uuids, det_indices, object_list)
         object_list = remove_untracked_vehicles(object_list)
         
         if self.use_filtered_position:
