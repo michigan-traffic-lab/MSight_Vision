@@ -31,7 +31,7 @@ class FiniteDifferenceStateEstimator(StateEstimatorBase):
     def get_anchor_point(self, obj):
         traj = obj.traj
         if len(traj.steps) <= 1:
-            None
+            return None
         if len(traj.steps) < self.frame_interval + 2:
             anchor_index = 0
         else:
