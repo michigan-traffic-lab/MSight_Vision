@@ -349,10 +349,14 @@ class KalmanBoxTracker(object):
 
 
 def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, iou_type='iou', vehicle_list = None,
-                                     det_is_vru=None, trk_is_vru=None):
+                                     det_is_vru=None, trk_is_vru=None, vru_iou_threshold=None):
     """
     Assigns detections to tracked object (both represented as bounding boxes)
 
+    :param iou_threshold: threshold for vehicle-vehicle pairs, and for every
+      pair when vru_iou_threshold is not given
+    :param vru_iou_threshold: threshold for VRU-VRU pairs. None means reuse
+      iou_threshold for them too.
     :param det_is_vru: per-detection bool sequence, aligned with `detections`
     :param trk_is_vru: per-tracker bool sequence, aligned with `trackers`
       When both are given, VRU/vehicle pairs are blocked: a VRU detection can
@@ -375,11 +379,18 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, io
     else:
         raise NotImplementedError
 
+    # Per-cell IOU threshold. IOU is scale-relative, so one global threshold
+    # means very different metric capture radii for 1.5m VRU boxes and 4m
+    # vehicle boxes; VRU-VRU pairs therefore get their own value. Cross-group
+    # cells keep the vehicle value -- they are blocked just below anyway, and
+    # _BLOCKED_AFFINITY sits far below any sane threshold.
+    thresholds = np.full(iou_matrix.shape, iou_threshold, dtype=float)
+
     # Block cross-group pairs. np.where copies, so ori_iou_matrix stays clean.
     # Both exit paths below honour this without further changes: the greedy
-    # shortcut tests `> iou_threshold` so blocked cells never qualify, and the
-    # post-filter tests `< iou_threshold` so a blocked cell the solver was
-    # forced into is split back into an unmatched detection and tracker.
+    # shortcut tests `> thresholds` so blocked cells never qualify, and the
+    # post-filter tests `< thresholds` so a blocked cell the solver was forced
+    # into is split back into an unmatched detection and tracker.
     if det_is_vru is not None and trk_is_vru is not None and min(iou_matrix.shape) > 0:
         det_vru = np.asarray(det_is_vru, dtype=bool)
         trk_vru = np.asarray(trk_is_vru, dtype=bool)
@@ -391,9 +402,12 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, io
                 f"det_is_vru {det_vru.shape}, trk_is_vru {trk_vru.shape}")
         iou_matrix = np.where(det_vru[:, None] != trk_vru[None, :],
                               _BLOCKED_AFFINITY, iou_matrix)
+        if vru_iou_threshold is not None:
+            thresholds = np.where(det_vru[:, None] & trk_vru[None, :],
+                                  vru_iou_threshold, thresholds)
 
     if min(iou_matrix.shape) > 0:
-        a = (iou_matrix > iou_threshold).astype(np.int32)
+        a = (iou_matrix > thresholds).astype(np.int32)
         if a.sum(1).max() == 1 and a.sum(0).max() == 1:
             matched_indices = np.stack(np.where(a), axis=1)
         else:
@@ -413,7 +427,7 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, io
     # filter out matched with low IOU
     matches = []
     for m in matched_indices:
-        if(iou_matrix[m[0], m[1]] < iou_threshold):
+        if(iou_matrix[m[0], m[1]] < thresholds[m[0], m[1]]):
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:
@@ -428,9 +442,13 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, io
 
 class Sort(object):
     def __init__(self, max_age=3, min_hits=1, iou_threshold=0.01, iou_type='iou', vru_categories=None,
-                 raw_box_shrink_ratio=1./3.):
+                 raw_box_shrink_ratio=1./3., vru_iou_threshold=None):
         """
         Sets key parameters for SORT
+        :param iou_threshold: IOU threshold for vehicle-vehicle matching, and for
+          everything when vru_iou_threshold is None
+        :param vru_iou_threshold: IOU threshold for VRU-VRU matching. None means
+          reuse iou_threshold.
         :param vru_categories: category ids belonging to the VRU group. Empty or
           None means every object is treated as a vehicle.
         :param raw_box_shrink_ratio: reject an association when the detection's
@@ -441,6 +459,7 @@ class Sort(object):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
+        self.vru_iou_threshold = vru_iou_threshold
         self.trackers = []
         self.frame_count = 0
         self.curr_matched = []
@@ -527,7 +546,8 @@ class Sort(object):
         trk_is_vru = [trk.is_vru for trk in self.trackers]
         matched, unmatched_dets, unmatched_trks = associate_detections_to_trackers(
             dets, trks, self.iou_threshold, self.iou_type, vehicle_list,
-            det_is_vru=det_is_vru, trk_is_vru=trk_is_vru)
+            det_is_vru=det_is_vru, trk_is_vru=trk_is_vru,
+            vru_iou_threshold=self.vru_iou_threshold)
         # Post-filter on raw detection box size. Purely a match veto: it runs on
         # the association result and never reaches into the Kalman filter.
         matched, unmatched_dets, unmatched_trks = self._reject_shrinking_matches(
@@ -662,12 +682,17 @@ def remove_untracked_vehicles(vehicle_list):
 
 class SortTracker(TrackerBase):
     def __init__(self, max_age=3, min_hits=1, iou_threshold=0.01, iou_type='iou', use_filtered_position=False, output_predicted=False,
-                 vru_categories=None, raw_box_shrink_ratio=1./3.):
+                 vru_categories=None, raw_box_shrink_ratio=1./3., vru_iou_threshold=None):
         """
         Sets key parameters for SORT
         :param max_age: Maximum number of frames to keep a track without detection
         :param min_hits: Minimum number of hits before a track is confirmed
-        :param iou_threshold: IOU threshold for matching
+        :param iou_threshold: IOU threshold for vehicle-vehicle matching, and for
+          everything when vru_iou_threshold is None
+        :param vru_iou_threshold: IOU threshold for VRU-VRU matching. None reuses
+          iou_threshold. Note IOU is scale-relative: the same number means a
+          ~3.9m capture radius between 4m vehicle boxes but only ~1.47m between
+          1.5m VRU boxes, so the two groups genuinely need separate values.
         :param iou_type: Type of IOU to use ('iou' or 'l2distance')
         :param use_filtered_position: If True, use Kalman filter's refined position instead of raw detection
         :param output_predicted: If True, output predicted positions for temporarily missing objects
@@ -682,7 +707,8 @@ class SortTracker(TrackerBase):
         self.vru_categories = normalize_vru_categories(vru_categories)
         self.tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold, iou_type=iou_type,
                             vru_categories=self.vru_categories,
-                            raw_box_shrink_ratio=raw_box_shrink_ratio)
+                            raw_box_shrink_ratio=raw_box_shrink_ratio,
+                            vru_iou_threshold=vru_iou_threshold)
         self.use_filtered_position = use_filtered_position
         self.output_predicted = output_predicted
 
