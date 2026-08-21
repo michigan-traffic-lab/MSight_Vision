@@ -20,12 +20,19 @@ class SortTrackerNode(DataProcessingNode):
         self.iou_threshold = self.tracking_configs['tracker_config'].get("iou_threshold", 0.01)
         self.use_filtered_position = self.tracking_configs['tracker_config'].get("use_filtered_position", False)
         self.output_predicted = self.tracking_configs['tracker_config'].get("output_predicted", False)
+        # Category ids that belong to the VRU group. Unset means every object is
+        # treated as a vehicle, which leaves association ungated by group.
+        self.vru_categories = self.tracking_configs['tracker_config'].get("vru_categories", [])
+        # Post-association size veto. 0 or null disables it.
+        self.raw_box_shrink_ratio = self.tracking_configs['tracker_config'].get("raw_box_shrink_ratio", 1./3.)
         self.tracker = SortTracker(
-            max_age=self.max_age, 
-            min_hits=self.min_hits, 
-            iou_threshold=self.iou_threshold, 
-            use_filtered_position=self.use_filtered_position, 
-            output_predicted=self.output_predicted
+            max_age=self.max_age,
+            min_hits=self.min_hits,
+            iou_threshold=self.iou_threshold,
+            use_filtered_position=self.use_filtered_position,
+            output_predicted=self.output_predicted,
+            vru_categories=self.vru_categories,
+            raw_box_shrink_ratio=self.raw_box_shrink_ratio
         )
         
 

@@ -9,6 +9,19 @@ import uuid
 
 LAT0, LON0 = 42.229392, -83.739012
 
+# Side length, in meters, of the square box standing in for each object class.
+# Detections and Kalman predictions must use the SAME size for a given class:
+# when they differ, IOU between a detection and its own track is capped below
+# 1.0 and iou_threshold stops meaning what it reads like.
+VEHICLE_BOX_SIZE = 4.0
+VRU_BOX_SIZE = 1.5
+
+# Affinity written into cross-group cells (VRU detection vs vehicle track, and
+# vice versa). Large and negative so the assignment solver never prefers such a
+# pair, and far below any sane iou_threshold so the post-filter rejects it even
+# when the solver is forced into one to complete the assignment.
+_BLOCKED_AFFINITY = -1e6
+
 
 def coord_normalization(lat, lon, center_lat=LAT0, center_lon=LON0):
     # print("coord_normalization", lat, lon)
@@ -23,6 +36,95 @@ def coord_unnormalization(lat_norm, lon_norm, center_lat=LAT0, center_lon=LON0):
     lat = lat_norm / 111000. + center_lat
     lon = lon_norm / 111000. / np.cos(center_lat/180.*np.pi) + center_lon
     return lat, lon
+
+
+def normalize_vru_categories(vru_categories):
+    """Coerce a config list of VRU category ids into a set of ints.
+
+    Accepts None/empty (meaning "no VRU classes configured", i.e. every object
+    is treated as a vehicle), and tolerates IntEnum members or numeric strings.
+    """
+    if not vru_categories:
+        return set()
+    normalized = set()
+    for category in vru_categories:
+        try:
+            normalized.add(int(category))
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def is_vru_category(category, vru_categories):
+    """True if `category` is one of the configured VRU category ids."""
+    if category is None:
+        return False
+    try:
+        return int(category) in vru_categories
+    except (TypeError, ValueError):
+        return False
+
+
+def box_size_for(is_vru):
+    """Square side length in meters for the given group."""
+    return VRU_BOX_SIZE if is_vru else VEHICLE_BOX_SIZE
+
+
+def raw_box_area(box):
+    """Pixel area of a raw detection box, or None if it is unusable.
+
+    The OBB detectors emit `box` as 8 values -- four corner points
+    [x1,y1, x2,y2, x3,y3, x4,y4] -- so the area is the shoelace polygon area,
+    NOT (x2-x1)*(y2-y1). A 4-value axis-aligned [x1,y1,x2,y2] box is also
+    accepted for the non-OBB detectors.
+    """
+    if box is None:
+        return None
+    try:
+        vals = [float(c) for c in box]
+    except (TypeError, ValueError):
+        return None
+    if len(vals) == 4:
+        return abs((vals[2] - vals[0]) * (vals[3] - vals[1]))
+    if len(vals) == 8:
+        xs, ys = vals[0::2], vals[1::2]
+        total = 0.0
+        for i in range(4):
+            j = (i + 1) % 4
+            total += xs[i] * ys[j] - xs[j] * ys[i]
+        return abs(total) / 2.0
+    return None
+
+
+def road_user_raw_area(road_user):
+    """Largest raw detection box area across the sensors that saw this object.
+
+    Returns None when no usable raw box is present, which makes the post-filter
+    skip this object rather than guess. `sensor_data` maps sensor id -> the
+    DetectedObject2D dict, so the box lives at sensor_data[sensor_id]['box'].
+
+    NOTE: for a multi-sensor fused object the per-sensor areas differ (different
+    distance and viewing angle), and taking the max means the value can jump if
+    a sensor drops out of the fusion group between frames. Single-sensor feeds,
+    where sensor_data holds exactly one entry, are unaffected.
+    """
+    sensor_data = getattr(road_user, 'sensor_data', None)
+    if not sensor_data:
+        return None
+    areas = []
+    for entry in sensor_data.values():
+        if not isinstance(entry, dict):
+            continue
+        area = raw_box_area(entry.get('box'))
+        if area is not None and area > 0:
+            areas.append(area)
+    return max(areas) if areas else None
+
+
+def vlist2rawarea(vehicle_list):
+    """Per-object raw detection areas, aligned with vlist2bbox's output order."""
+    return [road_user_raw_area(v) for v in vehicle_list]
+
 
 def vpred2bbox(v, r=4):
 
@@ -95,13 +197,15 @@ def convert_bbox_to_z(bbox):
     return np.array([x, y]).reshape((2, 1))
 
 
-def convert_x_to_bbox(x, score=None):
+def convert_x_to_bbox(x, score=None, box_size=VEHICLE_BOX_SIZE):
     """
     Takes a bounding box in the centre form [x,y,s,r] and returns it in the form
       [x1,y1,x2,y2] where x1,y1 is the top left and x2,y2 is the bottom right
+    :param box_size: square side length in meters; must match the size
+      vlist2bbox uses for this object's class, or IOU cannot reach 1.0
     """
-    w = 4
-    h = 4
+    w = box_size
+    h = box_size
     if(score == None):
         return np.array([x[0]-w/2., x[1]-h/2., x[0]+w/2., x[1]+h/2.]).reshape((1, 4))
     else:
@@ -114,11 +218,14 @@ class KalmanBoxTracker(object):
     """
     count = 0
 
-    def __init__(self, bbox, category=0):
+    def __init__(self, bbox, category=0, is_vru=False, raw_area=None):
         """
         Initialises a tracker using initial bounding box.
         :param bbox: initial bounding box [x1, y1, x2, y2, score]
         :param category: object category/class id
+        :param is_vru: True if this track belongs to the VRU group
+        :param raw_area: pixel area of the raw detection box that started this
+          track. Bookkeeping only -- it never enters the Kalman filter.
         """
         # define constant velocity model
         self.kf = KalmanFilter(dim_x=4, dim_z=2)
@@ -169,14 +276,27 @@ class KalmanBoxTracker(object):
         self.dlpred_boxes = None
         self.dlpred_age = 0
         self.category = category  # Store object category
+        # Group is fixed at birth and never recomputed. Association refuses to
+        # cross groups, so a VRU track can only ever be updated by a VRU
+        # detection -- self.category may still be refined within the group, but
+        # it can never carry the track into the other one.
+        self.is_vru = bool(is_vru)
+        self.box_size = box_size_for(self.is_vru)
+        # Pixel area of the last ACCEPTED raw detection box. Because a match is
+        # only accepted when the detection is not much smaller than this, the
+        # value can only shrink gradually, which is what makes it a usable
+        # reference for the size post-filter.
+        self.raw_box_area = raw_area
         self.det_idx = -1  # detection index matched this frame (set by Sort.update)
         self.last_confidence = bbox[4] if len(bbox) > 4 else 1.0  # Store last confidence
 
-    def update(self, bbox, category=None):
+    def update(self, bbox, category=None, raw_area=None):
         """
         Updates the state vector with observed bbox.
         :param bbox: observed bounding box
         :param category: object category (optional, updates stored category if provided)
+        :param raw_area: raw detection box area for this observation (optional).
+          Stored for the size post-filter; not used by the Kalman filter.
         """
         self.time_since_update = 0
         self.history = []
@@ -185,6 +305,8 @@ class KalmanBoxTracker(object):
         self.kf.update(convert_bbox_to_z(bbox))
         if category is not None:
             self.category = category
+        if raw_area is not None:
+            self.raw_box_area = raw_area
         if len(bbox) > 4:
             self.last_confidence = bbox[4]
 
@@ -213,7 +335,7 @@ class KalmanBoxTracker(object):
         if(self.time_since_update > 0):
             self.hit_streak = 0
         self.time_since_update += 1
-        self.history.append(convert_x_to_bbox(self.kf.x))
+        self.history.append(convert_x_to_bbox(self.kf.x, box_size=self.box_size))
         if sum(self.dlpred_box) == 0:
             return self.history[-1]
         else:
@@ -223,12 +345,18 @@ class KalmanBoxTracker(object):
         """
         Returns the current bounding box estimate.
         """
-        return convert_x_to_bbox(self.kf.x)
+        return convert_x_to_bbox(self.kf.x, box_size=self.box_size)
 
 
-def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, iou_type='iou', vehicle_list = None):
+def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, iou_type='iou', vehicle_list = None,
+                                     det_is_vru=None, trk_is_vru=None):
     """
     Assigns detections to tracked object (both represented as bounding boxes)
+
+    :param det_is_vru: per-detection bool sequence, aligned with `detections`
+    :param trk_is_vru: per-tracker bool sequence, aligned with `trackers`
+      When both are given, VRU/vehicle pairs are blocked: a VRU detection can
+      only match a VRU track and a vehicle detection only a vehicle track.
 
     Returns 3 lists of matches, unmatched_detections and unmatched_trackers
     """
@@ -246,6 +374,23 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, io
     #     iou_matrix = ori_iou_matrix
     else:
         raise NotImplementedError
+
+    # Block cross-group pairs. np.where copies, so ori_iou_matrix stays clean.
+    # Both exit paths below honour this without further changes: the greedy
+    # shortcut tests `> iou_threshold` so blocked cells never qualify, and the
+    # post-filter tests `< iou_threshold` so a blocked cell the solver was
+    # forced into is split back into an unmatched detection and tracker.
+    if det_is_vru is not None and trk_is_vru is not None and min(iou_matrix.shape) > 0:
+        det_vru = np.asarray(det_is_vru, dtype=bool)
+        trk_vru = np.asarray(trk_is_vru, dtype=bool)
+        # Fail loud on misalignment: silently skipping the mask would quietly
+        # re-enable VRU-to-vehicle matching, which is the thing we must prevent.
+        if det_vru.shape != (iou_matrix.shape[0],) or trk_vru.shape != (iou_matrix.shape[1],):
+            raise ValueError(
+                f"group flags misaligned with cost matrix {iou_matrix.shape}: "
+                f"det_is_vru {det_vru.shape}, trk_is_vru {trk_vru.shape}")
+        iou_matrix = np.where(det_vru[:, None] != trk_vru[None, :],
+                              _BLOCKED_AFFINITY, iou_matrix)
 
     if min(iou_matrix.shape) > 0:
         a = (iou_matrix > iou_threshold).astype(np.int32)
@@ -282,9 +427,16 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3, io
 
 
 class Sort(object):
-    def __init__(self, max_age=3, min_hits=1, iou_threshold=0.01, iou_type='iou'):
+    def __init__(self, max_age=3, min_hits=1, iou_threshold=0.01, iou_type='iou', vru_categories=None,
+                 raw_box_shrink_ratio=1./3.):
         """
         Sets key parameters for SORT
+        :param vru_categories: category ids belonging to the VRU group. Empty or
+          None means every object is treated as a vehicle.
+        :param raw_box_shrink_ratio: reject an association when the detection's
+          raw box AREA is below this fraction of the track's stored raw area.
+          Catches a VRU misclassified as a vehicle from stealing a real
+          vehicle's track. Set to 0 or None to disable.
         """
         self.max_age = max_age
         self.min_hits = min_hits
@@ -293,12 +445,56 @@ class Sort(object):
         self.frame_count = 0
         self.curr_matched = []
         self.iou_type = iou_type
+        self.vru_categories = normalize_vru_categories(vru_categories)
+        self.raw_box_shrink_ratio = raw_box_shrink_ratio or 0.
 
-    def update(self, dets=np.empty((0, 5)), categories=None, vehicle_list=None):
+    def _reject_shrinking_matches(self, matched, unmatched_dets, unmatched_trks, raw_areas):
+        """Drop associations where the detection's raw box is far smaller than
+        the track's.
+
+        Runs AFTER association and touches nothing in the Kalman filter: a
+        rejected pair is simply pushed back into the unmatched lists, so the
+        detection starts its own track and the track coasts as if unseen.
+
+        This is the backstop for the case the category gate cannot see: when a
+        VRU is misclassified as a vehicle it lands in the vehicle group, where
+        nothing stops it from capturing a real vehicle's track. The raw pixel
+        box still shows a small object, so the size ratio catches it.
+
+        A match is kept when either side's raw area is unknown -- guessing would
+        be worse than letting the geometry decide.
+        """
+        if self.raw_box_shrink_ratio <= 0 or raw_areas is None or len(matched) == 0:
+            return matched, unmatched_dets, unmatched_trks
+
+        kept = []
+        dropped_dets, dropped_trks = [], []
+        for m in matched:
+            d, t = int(m[0]), int(m[1])
+            det_area = raw_areas[d] if d < len(raw_areas) else None
+            trk_area = self.trackers[t].raw_box_area
+            if (det_area is not None and trk_area is not None and trk_area > 0
+                    and det_area < trk_area * self.raw_box_shrink_ratio):
+                dropped_dets.append(d)
+                dropped_trks.append(t)
+            else:
+                kept.append([d, t])
+
+        if not dropped_dets:
+            return matched, unmatched_dets, unmatched_trks
+
+        matched = np.array(kept, dtype=int) if kept else np.empty((0, 2), dtype=int)
+        unmatched_dets = np.array(list(unmatched_dets) + dropped_dets, dtype=int)
+        unmatched_trks = np.array(list(unmatched_trks) + dropped_trks, dtype=int)
+        return matched, unmatched_dets, unmatched_trks
+
+    def update(self, dets=np.empty((0, 5)), categories=None, vehicle_list=None, raw_areas=None):
         """
         Params:
           dets - a numpy array of detections in the format [[x1,y1,x2,y2,score],[x1,y1,x2,y2,score],...]
           categories - list of category ids corresponding to each detection
+          raw_areas - per-detection raw box pixel areas (or None entries), used
+            only by the size post-filter
         Requires: this method must be called once for each frame even with empty detections (use np.empty((0, 5)) for frames without detections).
         Returns the a similar array, where the last column is the object ID.
 
@@ -323,18 +519,33 @@ class Sort(object):
         trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
         for t in reversed(to_del):
             self.trackers.pop(t)
+        # Build the group flags HERE, after the NaN rows are compressed out of
+        # trks and the matching trackers popped: those are the same set, so
+        # self.trackers[i] now corresponds to trks[i] and trk_is_vru lines up
+        # with the columns the association actually sees.
+        det_is_vru = [is_vru_category(c, self.vru_categories) for c in categories]
+        trk_is_vru = [trk.is_vru for trk in self.trackers]
         matched, unmatched_dets, unmatched_trks = associate_detections_to_trackers(
-            dets, trks, self.iou_threshold, self.iou_type, vehicle_list)
+            dets, trks, self.iou_threshold, self.iou_type, vehicle_list,
+            det_is_vru=det_is_vru, trk_is_vru=trk_is_vru)
+        # Post-filter on raw detection box size. Purely a match veto: it runs on
+        # the association result and never reaches into the Kalman filter.
+        matched, unmatched_dets, unmatched_trks = self._reject_shrinking_matches(
+            matched, unmatched_dets, unmatched_trks, raw_areas)
         self.curr_matched = matched
 
         # update matched trackers with assigned detections
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :], categories[m[0]])
+            self.trackers[m[1]].update(
+                dets[m[0], :], categories[m[0]],
+                raw_area=raw_areas[m[0]] if raw_areas is not None else None)
             self.trackers[m[1]].det_idx = int(m[0])
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :], category=categories[i])
+            trk = KalmanBoxTracker(dets[i, :], category=categories[i],
+                                   is_vru=det_is_vru[i],
+                                   raw_area=raw_areas[i] if raw_areas is not None else None)
             trk.det_idx = int(i)
             self.trackers.append(trk)
         i = len(self.trackers)
@@ -368,21 +579,31 @@ class Sort(object):
 
 
 
-def vlist2bbox(vehicle_list, r=4):
+def vlist2bbox(vehicle_list, vru_categories=None):
+    """Convert road user points into square boxes in the local metric frame.
 
+    Box size is per class -- VRUs get VRU_BOX_SIZE, everything else
+    VEHICLE_BOX_SIZE -- matching what convert_x_to_bbox produces for the
+    corresponding track, so IOU between a detection and its own track can
+    reach 1.0.
+    """
     if len(vehicle_list) == 0:
         return np.empty([0, 5]), []
+
+    vru_categories = normalize_vru_categories(vru_categories)
 
     bboxes = []
     categories = []
     for i in range(len(vehicle_list)):
         v = vehicle_list[i]
         v.traj_id = "-1"
+        category = v.category if hasattr(v, 'category') else 0
+        half = box_size_for(is_vru_category(category, vru_categories)) / 2.
         realworld_x_norm, realworld_y_norm = coord_normalization(v.x, v.y)
-        bbox = [realworld_x_norm-r, realworld_y_norm-r,
-                realworld_x_norm+r, realworld_y_norm+r, v.confidence]
+        bbox = [realworld_x_norm-half, realworld_y_norm-half,
+                realworld_x_norm+half, realworld_y_norm+half, v.confidence]
         bboxes.append(bbox)
-        categories.append(v.category if hasattr(v, 'category') else 0)
+        categories.append(category)
 
     return np.array(bboxes), categories
 
@@ -440,7 +661,8 @@ def remove_untracked_vehicles(vehicle_list):
 #         self.tracker.update_pred(vehicle_list)
 
 class SortTracker(TrackerBase):
-    def __init__(self, max_age=3, min_hits=1, iou_threshold=0.01, iou_type='iou', use_filtered_position=False, output_predicted=False):
+    def __init__(self, max_age=3, min_hits=1, iou_threshold=0.01, iou_type='iou', use_filtered_position=False, output_predicted=False,
+                 vru_categories=None, raw_box_shrink_ratio=1./3.):
         """
         Sets key parameters for SORT
         :param max_age: Maximum number of frames to keep a track without detection
@@ -449,14 +671,26 @@ class SortTracker(TrackerBase):
         :param iou_type: Type of IOU to use ('iou' or 'l2distance')
         :param use_filtered_position: If True, use Kalman filter's refined position instead of raw detection
         :param output_predicted: If True, output predicted positions for temporarily missing objects
+        :param vru_categories: category ids belonging to the VRU group. VRUs only
+          associate with VRU tracks and use VRU_BOX_SIZE boxes; everything else
+          is a vehicle and uses VEHICLE_BOX_SIZE. Empty or None means all vehicle.
+        :param raw_box_shrink_ratio: post-association veto -- reject a match when
+          the detection's raw box area is below this fraction of the track's
+          stored raw area. Backstop for VRUs misclassified as vehicles, which the
+          category gate cannot catch. Set to 0 or None to disable.
         """
-        self.tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold, iou_type=iou_type)
+        self.vru_categories = normalize_vru_categories(vru_categories)
+        self.tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold, iou_type=iou_type,
+                            vru_categories=self.vru_categories,
+                            raw_box_shrink_ratio=raw_box_shrink_ratio)
         self.use_filtered_position = use_filtered_position
         self.output_predicted = output_predicted
-    
+
     def track(self, object_list):
-        bbs, categories = vlist2bbox(object_list)
-        updated_bbs, ids, uuids, det_indices = self.tracker.update(bbs, categories)
+        bbs, categories = vlist2bbox(object_list, self.vru_categories)
+        raw_areas = vlist2rawarea(object_list)
+        updated_bbs, ids, uuids, det_indices = self.tracker.update(
+            bbs, categories, raw_areas=raw_areas)
         object_list = update_vlist(updated_bbs, ids, uuids, det_indices, object_list)
         object_list = remove_untracked_vehicles(object_list)
         
