@@ -9,7 +9,7 @@ include = ["msight_*", "cli*"]
 
 [project]
 name = "msight_vision"
-version = "0.1.2"
+version = "0.1.3"
 description = "2D detection module for the MSight roadside perception system"
 readme = "README.md"
 requires-python = ">=3.8"

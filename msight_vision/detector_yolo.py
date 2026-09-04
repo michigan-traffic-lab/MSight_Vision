@@ -16,7 +16,8 @@ class YoloDetector(ImageDetector2DBase):
         :param model_path: path to the YOLO model
         :param device: device to run the model on (e.g., 'cpu', 'cuda')
         :param pre_mask_path: optional {sensor_name: path} of binary masks applied to
-            the image before inference; pixels outside the mask are blacked out.
+            the image before inference; pixels outside the mask are set to 114 (the
+            letterbox grey the pre-masked training set was built with).
         :param post_mask_path: optional {sensor_name: path} of binary masks applied to
             the detections after inference; a detection is dropped unless its box
             overlaps the mask. Independent of ``pre_mask_path`` -- either, both, or
@@ -33,7 +34,7 @@ class YoloDetector(ImageDetector2DBase):
         self.class_agnostic_nms = class_agnostic_nms
         self.id_mapping = {int(k): int(v) for k, v in id_mapping.items()} if id_mapping is not None else None
         self.pre_mask = {
-            key: np.repeat((np.load(item).astype(bool).astype(np.uint8) * 255)[:, :, np.newaxis], 3, axis=2) for key, item in pre_mask_path.items()
+            key: np.load(item).astype(bool).astype(np.uint8) * 255 for key, item in pre_mask_path.items()
         } if pre_mask_path is not None else None
         self.post_mask = {
             key: np.load(item).astype(bool).astype(np.uint8) for key, item in post_mask_path.items()
@@ -41,7 +42,7 @@ class YoloDetector(ImageDetector2DBase):
 
     def apply_pre_mask(self, image: ndarray, sensor_name) -> ndarray:
         """
-        Black out the pixels outside this sensor's pre mask.
+        Set the pixels outside this sensor's pre mask to 114.
         :param image: the image about to be fed to the model.
         :param sensor_name: name of the sensor the image came from.
         :return: the masked image, or the image unchanged if no pre mask applies.
@@ -52,7 +53,9 @@ class YoloDetector(ImageDetector2DBase):
             raise ValueError(
                 f"Pre mask dimensions {self.pre_mask[sensor_name].shape[:2]} do not match image dimensions {image.shape[:2]}"
             )
-        return cv2.bitwise_and(image, self.pre_mask[sensor_name])
+        masked = np.full_like(image, 114)  # letterbox grey, same as the pre-masked training set
+        cv2.copyTo(image, self.pre_mask[sensor_name], masked)  # copy the pixels inside the mask
+        return masked
 
     def apply_post_mask(self, detected_objects: List, sensor_name, image_shape) -> List:
         """
