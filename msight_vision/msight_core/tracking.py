@@ -1,6 +1,6 @@
 from msight_core.nodes import DataProcessingNode, NodeConfig
 from msight_core.data import RoadUserListData
-from .. import SortTracker
+from .. import SortTracker, GeoTracker
 from pathlib import Path
 import yaml
 import time
@@ -27,7 +27,10 @@ class SortTrackerNode(DataProcessingNode):
         self.vru_categories = self.tracking_configs['tracker_config'].get("vru_categories", [])
         # Post-association size veto. 0 or null disables it.
         self.raw_box_shrink_ratio = self.tracking_configs['tracker_config'].get("raw_box_shrink_ratio", 1./3.)
-        self.tracker = SortTracker(
+        # tracker_config.class_name picks the tracker class; SortTracker unless set.
+        tracker_class = {"SortTracker": SortTracker, "GeoTracker": GeoTracker}[
+            self.tracking_configs['tracker_config'].get("class_name", "SortTracker")]
+        self.tracker = tracker_class(
             max_age=self.max_age,
             min_hits=self.min_hits,
             iou_threshold=self.iou_threshold,
